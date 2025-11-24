@@ -1,0 +1,15 @@
+venv-mmpose/
+venv/
+venv-win/
+
+*.task
+*.pth
+
+*.whl
+
+heatmaps/
+
+__pycache__/
+
+output/
+output-pose/
