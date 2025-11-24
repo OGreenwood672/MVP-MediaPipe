@@ -146,7 +146,7 @@ def create_crop(frame, crop_center_x, crop_center_y, width, height):
     return frame[top:bottom, left:right]
 
 def is_valid_landmark(landmark_name, landmark):
-    return not ((landmark.visibility < 0.5 or landmark.presence < 0.5) or not landmark_name in JOINTS)
+    return landmark.visibility >= 0.5 and landmark.presence >= 0.5 and landmark_name in JOINTS
    
 
 # Heatmaps for training
