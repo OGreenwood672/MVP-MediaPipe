@@ -124,7 +124,7 @@ class Unet(nn.Module):
             t_emb = self.time_layer(timestep)
 
         if joint_index is not None and hasattr(self, 'joint_embedding'):
-            j_emb = self.joint_embedding(joint_index) # This was self.joint_layer before, which was incorrect
+            j_emb = self.joint_embedding(joint_index)
             if t_emb is not None:
                 t_emb = t_emb + j_emb
             else:
