@@ -34,6 +34,9 @@ def load_diffusion_model(diffusion_model_path, hint="rgb"):
         input_channels = 4
     elif hint == "edge":
         input_channels = 2
+    elif hint == "both":
+        input_channels = 5
+
 
 
     model = Unet(input_channels=input_channels, output_channels=1, time_dimension=64, num_joints=len(JOINTS)).to(device)
@@ -123,7 +126,7 @@ def generate_heatmap_with_refinements(diffusion_model, full_image_path, hint_mod
     frame = cv2.imread(full_image_path)
     height, width, _ = frame.shape
     edges_full_img = None
-    if hint_mode == "edge":
+    if hint_mode == "edge" or hint_mode == "both":
         edges_full_img = cv2.Canny(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 100, 200)
         kernel = np.ones((3,3), np.uint8) # Thicken the edges, so they do not disappear on scaling
         edges_full_img = cv2.dilate(edges_full_img, kernel, iterations=1)
@@ -157,6 +160,14 @@ def generate_heatmap_with_refinements(diffusion_model, full_image_path, hint_mod
             rgb_crop = create_crop(frame, center_x, center_y, width, height)
             rgb_img = Image.fromarray(cv2.cvtColor(rgb_crop, cv2.COLOR_BGR2RGB))
             hint_tensor = transform_rgb(rgb_img).unsqueeze(0).to(device)
+        elif hint_mode == "both":
+            rgb_crop = create_crop(frame, center_x, center_y, width, height)
+            rgb_img = Image.fromarray(cv2.cvtColor(rgb_crop, cv2.COLOR_BGR2RGB))
+            rgb_tensor = transform_rgb(rgb_img)
+            edge_crop = create_crop(edges_full_img, center_x, center_y, width, height)
+            edge_crop_img = Image.fromarray(edge_crop).convert('L')
+            edge_tensor = transform_gray(edge_crop_img)
+            hint_tensor = torch.cat((rgb_tensor, edge_tensor), dim=0).unsqueeze(0).to(device)
         
         # Create heatmap from MediaPipe for single joint (for the model)
         mp_single_joint_map = np.zeros((height, width), dtype=np.float32)

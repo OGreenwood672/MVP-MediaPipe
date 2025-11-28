@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 import torch, torch.nn as nn
 from torch.utils.data import random_split
 
-from dataset import EdgeDataset, PlainDataset, RGBDataset
+from dataset import EdgeDataset, HintDataset, PlainDataset, RGBDataset
 from models import Unet
 from globals import PLAIN_DIR, T, HINT, RGB_CROPS_DIR, EDGE_DETECTION_DIR, MODEL_SAVE_PATH, EPOCHS, BATCH_SIZE
 
@@ -156,6 +156,9 @@ def main():
     elif HINT == "edge":
         data = EdgeDataset(EDGE_DETECTION_DIR)
         input_channels = 2 # Heatmap + Edge = 2
+    elif HINT == "both":
+        data = HintDataset(RGB_CROPS_DIR, EDGE_DETECTION_DIR)
+        input_channels = 5 # Heatmap + RGB + Edge = 6
     else:
         data = PlainDataset(PLAIN_DIR)
         input_channels = 1 # Heatmap = 1

@@ -3,16 +3,16 @@ import os
 JOINTS = ["LEFT_EYE", "RIGHT_EYE", "LEFT_ELBOW", "RIGHT_ELBOW", "LEFT_KNEE", "RIGHT_KNEE", "LEFT_HIP", "RIGHT_HIP"]
 
 # HINT = "rgb"
-# FOLDER = "rgb_crops"
 # MODEL_SAVE_PATH = "unet_human_pose_rgb.pth"
 
 # HINT = "edge"
-# FOLDER = "edge_detection"
 # MODEL_SAVE_PATH = "unet_human_pose_edge.pth"
 
-HINT = None
-FOLDER = "plain"
-MODEL_SAVE_PATH = "unet_human_pose.pth"
+HINT = "both"
+MODEL_SAVE_PATH = "unet_human_pose_both.pth"
+
+# HINT = None
+# MODEL_SAVE_PATH = "unet_human_pose.pth"
 
 MODEL_PATH = "./pose_landmarker_lite.task"
 

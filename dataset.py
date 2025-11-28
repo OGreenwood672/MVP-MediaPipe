@@ -128,3 +128,58 @@ class PlainDataset(Dataset):
         plain_tensor = self.transform(plain_img)
         
         return plain_tensor, torch.tensor(joint_id).long()
+    
+class HintDataset(Dataset):
+    def __init__(self, rgb_dir, edge_dir):
+
+        self.rgb_dir = rgb_dir
+        self.edge_dir = edge_dir
+        self.files = []
+        for folder in sorted(os.listdir(rgb_dir)):
+            for f in sorted(os.listdir(os.path.join(rgb_dir, folder))):
+                if f.endswith("+rgb.png"):
+                    self.files.append((folder + "+" + f, folder + "+" + f.replace("+rgb.png", "+edge.png")))
+        
+        self.transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda t: (t * 2) - 1)
+        ])
+        
+        self.mp_pose = mp.solutions.pose.PoseLandmark
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        rgb_file, edge_file = self.files[idx]
+                
+        split_name = rgb_file.split("+")
+        photo_folder, joint_name, rgb_filename = split_name[0], split_name[1], '+'.join(split_name[1:])
+        edge_filename = '+'.join(edge_file.split("+")[1:])
+
+        # Same heatmap for both
+        heatmap_filename = rgb_filename.replace("+rgb.png", "+heatmap.png")
+        
+        try:
+            joint_id = JOINTS.index(joint_name)
+        except ValueError:
+            joint_id = -1
+            print("No Joint Name found for: ", rgb_file)
+        
+        rgb_path = os.path.join(self.rgb_dir, photo_folder, rgb_filename)
+        edge_path = os.path.join(self.edge_dir, photo_folder, edge_filename)
+        
+        hm_path = os.path.join(self.rgb_dir, photo_folder, heatmap_filename)
+        
+        rgb_img = Image.open(rgb_path).convert("RGB")
+        edge_img = Image.open(edge_path).convert("L")
+        hm_img = Image.open(hm_path).convert("L")
+        
+        rgb_tensor = self.transform(rgb_img)
+        edge_tensor = self.transform(edge_img)
+        hm_tensor = self.transform(hm_img)
+
+        combined_tensor = torch.cat((rgb_tensor, edge_tensor), dim=0)
+        
+        return combined_tensor, hm_tensor, torch.tensor(joint_id).long()
