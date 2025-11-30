@@ -17,7 +17,7 @@ from torch.utils.data import random_split
 
 from dataset import EdgeDataset, HintDataset, PlainDataset, RGBDataset
 from models import Unet
-from globals import PLAIN_DIR, T, HINT, RGB_CROPS_DIR, EDGE_DETECTION_DIR, MODEL_SAVE_PATH, EPOCHS, BATCH_SIZE
+from globals import JOINTS, PLAIN_DIR, T, HINT, RGB_CROPS_DIR, EDGE_DETECTION_DIR, MODEL_SAVE_PATH, EPOCHS, BATCH_SIZE
 
 betas = torch.linspace(0.0001, 0.02, T)
 alphas = 1-betas
@@ -72,7 +72,7 @@ def train(model, trainingLoader, validationLoader=None, epochs=10, device="cpu")
             else:
                 clean_heatmap_batch, joint_ids = batch_data
                 hint_batch = None
-            
+                        
             clean_heatmap_batch = clean_heatmap_batch.to(device)
             joint_ids = joint_ids.to(device)
 
@@ -173,7 +173,7 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
 
-    model = Unet(input_channels=input_channels, output_channels=1, time_dimension=64, num_joints=8).to(device)
+    model = Unet(input_channels=input_channels, output_channels=1, time_dimension=64, num_joints=len(JOINTS)).to(device)
 
     validationLosses = train(model, train_loader, validationLoader=val_loader, epochs=EPOCHS, device=device)
 

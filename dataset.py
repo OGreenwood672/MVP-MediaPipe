@@ -5,8 +5,6 @@ import mediapipe as mp
 import torch
 from torch.utils.data import Dataset
 
-from globals import JOINTS
-
 class RGBDataset(Dataset):
     def __init__(self, rgb_dir):
 
@@ -29,16 +27,10 @@ class RGBDataset(Dataset):
         rgb_filename = self.rgb_files[idx]
                 
         split_name = rgb_filename.split("+")
-        photo_folder, joint_name, filename = split_name[0], split_name[1], '+'.join(split_name[1:])
+        photo_folder, joint_id, filename = split_name[0], int(split_name[2]), '+'.join(split_name[1:])
 
         heatmap_filename = filename.replace("+rgb.png", "+heatmap.png")
-        
-        try:
-            joint_id = JOINTS.index(joint_name)
-        except ValueError:
-            joint_id = -1
-            print("No Joint Name found for: ", rgb_filename)
-        
+                
         rgb_path = os.path.join(self.rgb_dir, photo_folder, filename)
         hm_path = os.path.join(self.rgb_dir, photo_folder, heatmap_filename)
         
@@ -71,15 +63,10 @@ class EdgeDataset(Dataset):
         edge_filename = self.edge_files[idx]
                 
         split_name = edge_filename.split("+")
-        photo_folder, joint_name, filename = split_name[0], split_name[1], '+'.join(split_name[1:])
+        photo_folder, joint_id, filename = split_name[0], int(split_name[2]), '+'.join(split_name[1:])
 
         heatmap_filename = filename.replace("+edge.png", "+heatmap.png")
-        
-        try:
-            joint_id = JOINTS.index(joint_name)
-        except ValueError:
-            joint_id = -1
-            print("No Joint Name found for: ", edge_filename)
+
         
         edge_path = os.path.join(self.edge_dir, photo_folder, filename)
         hm_path = os.path.join(self.edge_dir, photo_folder, heatmap_filename)
@@ -113,13 +100,7 @@ class PlainDataset(Dataset):
         plain_filename = self.plain_files[idx]
                 
         split_name = plain_filename.split("+")
-        photo_folder, joint_name, filename = split_name[0], split_name[1], '+'.join(split_name[1:])
-        
-        try:
-            joint_id = JOINTS.index(joint_name)
-        except ValueError:
-            joint_id = -1
-            print("No Joint Name found for: ", plain_filename)
+        photo_folder, joint_id, filename = split_name[0], int(split_name[2]), '+'.join(split_name[1:])
         
         plain_path = os.path.join(self.plain_dir, photo_folder, filename)
         
@@ -155,17 +136,11 @@ class HintDataset(Dataset):
         rgb_file, edge_file = self.files[idx]
                 
         split_name = rgb_file.split("+")
-        photo_folder, joint_name, rgb_filename = split_name[0], split_name[1], '+'.join(split_name[1:])
+        photo_folder, joint_id, rgb_filename = split_name[0], int(split_name[2]), '+'.join(split_name[1:])
         edge_filename = '+'.join(edge_file.split("+")[1:])
 
         # Same heatmap for both
         heatmap_filename = rgb_filename.replace("+rgb.png", "+heatmap.png")
-        
-        try:
-            joint_id = JOINTS.index(joint_name)
-        except ValueError:
-            joint_id = -1
-            print("No Joint Name found for: ", rgb_file)
         
         rgb_path = os.path.join(self.rgb_dir, photo_folder, rgb_filename)
         edge_path = os.path.join(self.edge_dir, photo_folder, edge_filename)

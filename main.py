@@ -10,7 +10,7 @@ import mediapipe as mp
 from models import Unet
 from humanpose import noise_handler, alphas, alphas_cumprod, betas
 
-from globals import HINT, JOINTS, MODEL_IMG_SIZE, MODEL_SAVE_PATH
+from globals import HINT, MODEL_IMG_SIZE, MODEL_SAVE_PATH, JOINTS
 from get_data import CROP_SIZE, MODEL_PATH, create_crop, create_heatmaps, create_visual_overlay, init_mediapipe, is_valid_landmark, paste_crop_to_canvas, render_gaussian
 
 transform_rgb = transforms.Compose([
@@ -37,8 +37,6 @@ def load_diffusion_model(diffusion_model_path, hint="rgb"):
     elif hint == "both":
         input_channels = 5
 
-
-
     model = Unet(input_channels=input_channels, output_channels=1, time_dimension=64, num_joints=len(JOINTS)).to(device)
     model.load_state_dict(torch.load(diffusion_model_path, map_location=device))
     model.eval()
@@ -47,7 +45,7 @@ def load_diffusion_model(diffusion_model_path, hint="rgb"):
 
     return model, device
 
-def denoise(diffusion_model, timestep, img, hint_tensor=None, joint_tensor=None):
+def denoise(diffusion_model, timestep, img, hint_tensor=None, joint_tensor=None, device="cuda"):
 
     for t in reversed(range(0, int(timestep))):
         
@@ -162,6 +160,7 @@ def generate_heatmap_with_refinements(diffusion_model, full_image_path, hint_mod
             hint_tensor = transform_rgb(rgb_img).unsqueeze(0).to(device)
         elif hint_mode == "both":
             rgb_crop = create_crop(frame, center_x, center_y, width, height)
+            if rgb_crop is None: continue
             rgb_img = Image.fromarray(cv2.cvtColor(rgb_crop, cv2.COLOR_BGR2RGB))
             rgb_tensor = transform_rgb(rgb_img)
             edge_crop = create_crop(edges_full_img, center_x, center_y, width, height)
@@ -218,7 +217,7 @@ if __name__ == "__main__":
     # save_examples(diffusion_model, sample_heatmap_path, hint_path, 13, 90)
     
 
-    full_img_path = r"input\50-Ways-to-Fall_mp4-147_jpg.rf.d2498ea8b48a31bb97d903af5537b2b7.jpg"
+    full_img_path = r"input-old\not-fallen062_jpg.rf.71f92846a2517aafb4a4e29ded0a9d72.jpg"
     diffusion_model, device = load_diffusion_model(MODEL_SAVE_PATH, hint=HINT)
 
     for t in [100, 200, 300, 400, 500, 600]:

@@ -1,11 +1,15 @@
 import numpy as np
-import random
 import cv2
 import os
 import shutil
 import mediapipe as mp
+import scipy.io as sio
+from tqdm import tqdm
+import fiftyone as fo
+import fiftyone.utils.huggingface as fouh
 
-from globals import CROP_SIZE, JITTERS_PER_JOINT, JOINTS, HEATMAPS_DIR, EDGE_DETECTION_DIR, MAX_JITTER, MODEL_PATH, PLAIN_DIR, RGB_CROPS_DIR, INPUT_DIR
+
+from globals import ANNOTATIONS, CROP_SIZE, HEATMAPS_DIR, EDGE_DETECTION_DIR, JOINTS, MODEL_PATH, MPII_TO_MP_MAP, PLAIN_DIR, RGB_CROPS_DIR, INPUT_DIR
 
 
 def init_mediapipe(model_path):
@@ -37,8 +41,8 @@ def render_gaussian(heatmap, center, std, visibility=1.0):
     # Scale by visibility
     kernel = kernel / kernel.max() * visibility
 
-    left_img = center[0] - k_size // 2
-    top_img = center[1] - k_size // 2
+    left_img = int(center[0] - k_size // 2)
+    top_img = int(center[1] - k_size // 2)
     right_img = left_img + k_size
     bottom_img = top_img + k_size
 
@@ -65,6 +69,8 @@ def render_gaussian(heatmap, center, std, visibility=1.0):
             heatmap[top_img:bottom_img, left_img:right_img],
             kernel[top_kernel:bottom_kernel, left_kernel:right_kernel]
         )
+        return True
+    return False
 
 def paste_crop_to_canvas(canvas, crop, center_x, center_y):
     h_full, w_full = canvas.shape[:2]
@@ -133,35 +139,112 @@ def generate_sub_folders(file_stem):
 
     return plain_folder, rgb_crops_folder, edge_folder
 
+# def create_crop(frame, crop_center_x, crop_center_y, width, height):
+    
+#     left = crop_center_x - CROP_SIZE // 2
+#     top = crop_center_y - CROP_SIZE // 2
+#     right = left + CROP_SIZE
+#     bottom = top + CROP_SIZE
+    
+#     if left < 0 or top < 0 or right > width or bottom > height:
+#         return None
+        
+#     return frame[top:bottom, left:right]
+
 def create_crop(frame, crop_center_x, crop_center_y, width, height):
     
     left = crop_center_x - CROP_SIZE // 2
     top = crop_center_y - CROP_SIZE // 2
     right = left + CROP_SIZE
     bottom = top + CROP_SIZE
-    
-    if left < 0 or top < 0 or right > width or bottom > height:
-        return None
+
+    if len(frame.shape) == 3:
+        crop = np.zeros((CROP_SIZE, CROP_SIZE, 3), dtype=frame.dtype)
+    else:
+        crop = np.zeros((CROP_SIZE, CROP_SIZE), dtype=frame.dtype)
+
+    src_left = max(0, left)
+    src_top = max(0, top)
+    src_right = min(width, right)
+    src_bottom = min(height, bottom)
+
+    dst_left = src_left - left
+    dst_top = src_top - top
+    dst_right = dst_left + (src_right - src_left)
+    dst_bottom = dst_top + (src_bottom - src_top)
+
+    if src_right > src_left and src_bottom > src_top:
+        crop[dst_top:dst_bottom, dst_left:dst_right] = frame[src_top:src_bottom, src_left:src_right]
         
-    return frame[top:bottom, left:right]
+    return crop
 
 def is_valid_landmark(landmark_name, landmark):
     return landmark.visibility >= 0.5 and landmark.presence >= 0.5 and landmark_name in JOINTS
-   
+
+def get_annotations(annotation_path):
+    mat = sio.loadmat(annotation_path)
+    release = mat['RELEASE']
+    annolist = release['annolist'][0, 0]
+    return annolist
+
+def get_closest_landmark_joint(landmarks, width, height, mpi_joint, point):
+    closest = (-1, 99999999999)
+    for i, landmark in enumerate(landmarks):
+
+        if MPII_TO_MP_MAP[mpi_joint] != i:
+            continue
+
+        distance_squared = (landmark.x * width - point[0])**2 + (landmark.y * height - point[1])**2
+        if distance_squared < closest[1]:
+            closest = (i, distance_squared)
+        
+    return closest[0] if closest[0] != -1 and closest[1] < CROP_SIZE ** 2 else None
+
+def create_filename_to_index_map(img_list):
+    filename_to_index = {}
+    for index, img_entry in enumerate(img_list):
+        try:
+            name_field = img_entry['name']
+            filename = str(name_field[0][0].item())
+            filename_to_index[filename] = index
+        except (IndexError, AttributeError):
+            continue
+    return filename_to_index
+
 
 # Heatmaps for training
 def create_heatmaps():
 
     generate_folders()
 
+    dataset = fouh.load_from_hub("Voxel51/MPII_Human_Pose_Dataset", max_samples=800)
+
+    annolist = get_annotations(ANNOTATIONS)
+    img_list = annolist['image'][0]
+    rect_list = annolist['annorect'][0]
+
+    filename_map = create_filename_to_index_map(img_list)
+
+
     landmarker_obj = init_mediapipe(MODEL_PATH)
     with landmarker_obj as landmarker:
 
-        for filename in os.listdir(INPUT_DIR):
-            file_stem, _ = os.path.splitext(filename)        
+        print("Creating heatmaps...")
+        for sample in dataset.iter_samples(progress=True):
+            
+            filepath = sample.filepath
+            filename = os.path.basename(filepath)
+            file_stem, _ = os.path.splitext(filename)
 
-            image_path = os.path.join(INPUT_DIR, filename)
-            frame = cv2.imread(image_path)
+            if filename not in filename_map:
+                continue
+            index = filename_map[filename]
+
+            rects_entry = rect_list[index]
+            if rects_entry.size == 0:
+                continue
+
+            frame = cv2.imread(filepath)
             if frame is None:
                 print(f"Could not load {filename}")
                 continue
@@ -173,54 +256,89 @@ def create_heatmaps():
             if not result.pose_landmarks:
                 print(f"No pose detected in {filename}")
                 continue
+            landmarks = result.pose_landmarks[0]
 
-            plain_folder, rgb_crops_folder, edge_folder = generate_sub_folders(file_stem)
+            plain_folder, rgb_crops_folder, edge_folder = None, None, None
 
             edges_full = cv2.Canny(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 100, 200)
-            kernel = np.ones((3,3), np.uint8) # Thicken the edges, so they do not disappear on sacling
+            kernel = np.ones((3,3), np.uint8) # Thicken the edges, so they do not disappear on scaling
             edges_full = cv2.dilate(edges_full, kernel, iterations=1)
 
-            for idx, landmark in enumerate(result.pose_landmarks[0]):
+            for person_index, rect in enumerate(rects_entry):
+                if 'annopoints' not in rect.dtype.names:
+                    continue
 
-                landmark_name = mp.solutions.pose.PoseLandmark(idx).name
-
-                if not is_valid_landmark(landmark_name, landmark):
+                annopoints_entry = rect['annopoints']
+                if annopoints_entry.size == 0:
+                    continue
+                    
+                try:
+                    point_wrapper = annopoints_entry.flatten()[0]
+                    if 'point' not in point_wrapper.dtype.names:
+                        continue
+                    points_array = point_wrapper['point']
+                    if points_array.size == 0:
+                        continue
+                    points = points_array.flatten()[0].flatten()
+                except (IndexError, AttributeError):
                     continue
                 
-                # joint location
-                center = int(landmark.x * width), int(landmark.y * height)
+                for point_mat in points:
 
-                # Create plain ol' heatmap and save
-                single_joint_heatmap = render_heatmap(frame.shape, [landmark])
-                cv2.imwrite(os.path.join(plain_folder, f"{landmark_name}+plain.png"), single_joint_heatmap)
+                    try:
+                        px = float(point_mat['x'].flatten()[0])
+                        py = float(point_mat['y'].flatten()[0])
+                        p_id = int(point_mat['id'].flatten()[0])
+                        # p_visibility = float(point_mat['is_visible'].flatten()[0] if 'is_visible' in point_mat.dtype.names else 1.0)
+                    except (IndexError, AttributeError):
+                        continue
 
-                for j in range(JITTERS_PER_JOINT):
+                    closest_mp_landmark_id = get_closest_landmark_joint(landmarks, width, height, p_id, (px, py))
+                    if not closest_mp_landmark_id:
+                        continue
+
+                    landmark_name = mp.solutions.pose.PoseLandmark(closest_mp_landmark_id).name
+                    joint_id = JOINTS.index(landmark_name)
+                    closest_mp_landmark = landmarks[closest_mp_landmark_id]
                     
-                    dx = random.randint(-MAX_JITTER, MAX_JITTER)
-                    dy = random.randint(-MAX_JITTER, MAX_JITTER)
-                    crop_center_x = center[0] + dx
-                    crop_center_y = center[1] + dy
-                    
-                    rgb_crop = create_crop(frame, crop_center_x, crop_center_y, width, height)
-                    edges_crop = create_crop(edges_full, crop_center_x, crop_center_y, width, height)
+                    # joint location
+                    center = int(closest_mp_landmark.x * width), int(closest_mp_landmark.y * height)
+
+                    # Crop center is mediapipe joint center
+                    rgb_crop = create_crop(frame, center[0], center[1], width, height)
+                    edges_crop = create_crop(edges_full, center[0], center[1], width, height)
 
                     if rgb_crop is None or edges_crop is None:
                         continue
-
+                    
+                    dx, dy = center[0] - px, center[1] - py
+                    # Actual heatmap has the true joint location
                     heatmap_crop = np.zeros((CROP_SIZE, CROP_SIZE), dtype=np.float32)
-                    render_gaussian(
+                    on_screen = render_gaussian(
                         heatmap_crop,
                         (CROP_SIZE // 2 - dx, CROP_SIZE // 2 - dy),
                         std=3
                     )
+                    if not on_screen:
+                        continue
+
                     heatmap_crop = (heatmap_crop * 255).astype(np.uint8)
 
+                    if not plain_folder:
+                        plain_folder, rgb_crops_folder, edge_folder = generate_sub_folders(file_stem)
+
+                    # Create plain ol' heatmap and save
+                    single_joint_heatmap = render_heatmap(frame.shape, [closest_mp_landmark])
+                    cv2.imwrite(os.path.join(plain_folder, f"{joint_id}+plain.png"), single_joint_heatmap)
+
+
                     # Saved hints and assoicaiated heatmaps
-                    filename = f"{landmark_name}+{j}"
+                    filename = f"{person_index}+{joint_id}"
                     cv2.imwrite(f"{rgb_crops_folder}/{filename}+rgb.png", rgb_crop)
                     cv2.imwrite(f"{rgb_crops_folder}/{filename}+heatmap.png", heatmap_crop)
                     cv2.imwrite(f"{edge_folder}/{filename}+edge.png", edges_crop)
                     cv2.imwrite(f"{edge_folder}/{filename}+heatmap.png", heatmap_crop)
+    
 
 if __name__ == "__main__":
     create_heatmaps()
